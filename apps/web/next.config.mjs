@@ -1,13 +1,10 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  async rewrites() {
-    return [
-      {
-        source: "/api/:path*",
-        destination: `${process.env.API_INTERNAL_URL ?? "http://localhost:3002"}/api/:path*`,
-      },
-    ];
+  // Webhook + jobs + dashboard API are all colocated in src/app/api — no rewrites needed.
+  experimental: {
+    // Lets server code import from workspace packages without bundling them.
+    serverComponentsExternalPackages: ["pino", "pino-pretty"],
   },
 };
 
