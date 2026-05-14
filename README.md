@@ -112,7 +112,10 @@ cloudflared tunnel --url http://localhost:3000
 ## Deploying to Vercel
 
 1. **Connect repo** — go to https://vercel.com/new → import `upwellness/joeai`
-2. **Pick Next.js preset** (auto-detected via `vercel.json`)
+2. **In the import screen, set:**
+   - **Framework Preset:** Next.js (auto-detected)
+   - **Root Directory:** `apps/web` ← **important — without this you get a path-mismatch build error**
+   - **Build/Install commands:** leave as defaults; Vercel detects pnpm + monorepo
 3. **Add integrations** in the Vercel project:
    - **Neon Postgres** (or Vercel Postgres) → auto-sets `DATABASE_URL`
    - **Upstash QStash** → auto-sets `QSTASH_TOKEN`, `QSTASH_CURRENT_SIGNING_KEY`, `QSTASH_NEXT_SIGNING_KEY`
