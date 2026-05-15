@@ -9,7 +9,7 @@ import {
 } from "@joeai/shared";
 import { db } from "../db";
 import { getQueue } from "../queue";
-import { uploadBlob, yearMonth } from "../blob";
+import { uploadObject, yearMonth } from "../storage";
 
 const log = createLogger("handler.media-download");
 
@@ -63,16 +63,15 @@ export async function handleMediaDownload(job: MediaDownloadJob): Promise<void> 
     const res = await line.getMessageContent(job.lineMessageId);
     const contentType = res.headers.get("content-type") ?? undefined;
     const ext = extensionFor(job.mediaType, contentType);
-    const pathname = `line-media/${yearMonth()}/${attachment.id}.${ext}`;
+    const key = `line-media/${yearMonth()}/${attachment.id}.${ext}`;
 
     if (!res.body) throw new Error("Empty body from LINE Content API");
 
-    // @vercel/blob expects Blob/ArrayBuffer/string — read full bytes once.
-    // LINE media tends to be small (< few MB), so this is fine for v1.
+    // LINE media tends to be small (< few MB) — buffer it once.
     const buf = Buffer.from(await res.arrayBuffer());
 
-    const { url } = await uploadBlob({
-      pathname,
+    const { url } = await uploadObject({
+      key,
       body: buf,
       contentType,
     });
@@ -81,8 +80,8 @@ export async function handleMediaDownload(job: MediaDownloadJob): Promise<void> 
       .update(mediaAttachments)
       .set({
         status: "stored",
-        s3Bucket: "vercel-blob",
-        s3Key: url, // store the public URL directly
+        s3Bucket: "r2",
+        s3Key: url, // store the public R2 URL directly
         contentType: contentType ?? null,
         sizeBytes: buf.byteLength,
         storedAt: new Date(),

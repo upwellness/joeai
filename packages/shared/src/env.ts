@@ -24,8 +24,15 @@ const envSchema = z.object({
   // Vercel sets VERCEL_URL automatically for previews; PROD is set manually.
   APP_BASE_URL: z.string().url(),
 
-  // --- Vercel Blob (media + statement storage) ---
-  BLOB_READ_WRITE_TOKEN: z.string().min(1),
+  // --- Cloudflare R2 (media + statement storage) ---
+  // S3-compatible, free 10 GB + zero egress.
+  // Create at https://dash.cloudflare.com/ → R2 → Create bucket → API tokens.
+  R2_ACCOUNT_ID: z.string().min(1),
+  R2_ACCESS_KEY_ID: z.string().min(1),
+  R2_SECRET_ACCESS_KEY: z.string().min(1),
+  R2_BUCKET: z.string().min(1),
+  // Public base URL — either R2's dev URL (xxx.r2.dev) or your custom domain.
+  R2_PUBLIC_URL_BASE: z.string().url(),
 
   // --- OCR provider ---
   OCR_PROVIDER: z.enum(["typhoon", "google_vision", "mock"]).default("mock"),

@@ -4,10 +4,9 @@
   "buildCommand": "next build",
   "installCommand": "pnpm install --frozen-lockfile=false",
   "outputDirectory": ".next",
-  "regions": ["sin1"],
   "functions": {
     "src/app/api/jobs/**/route.ts": {
-      "maxDuration": 90
+      "maxDuration": 60
     },
     "src/app/api/webhook/line/route.ts": {
       "maxDuration": 10

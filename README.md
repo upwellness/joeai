@@ -4,11 +4,11 @@
 
 > Receives LINE webhooks, captures sales-team messages, OCRs customer payment
 > slips, matches them against bank statements, and auto-replies with confirmation —
-> all from one Vercel deployment.
+> all from one Vercel deployment, on a 100%-free stack.
 
 ---
 
-## Architecture (all Vercel, all serverless)
+## Architecture (all serverless, all free tier)
 
 ```
 LINE
@@ -35,15 +35,24 @@ LINE
 └────────────────────────────────────────┘
             │       │       │
             ▼       ▼       ▼
-       Neon     Upstash  Vercel
-      Postgres  QStash    Blob
+       Neon    Upstash   Cloudflare
+      Postgres  QStash       R2
 ```
 
-**External services (all have free tiers):**
-- **Neon** or **Vercel Postgres** — managed Postgres
-- **Upstash QStash** — HTTP-based queue (replaces BullMQ on serverless)
-- **Vercel Blob** — media + slip image storage
-- **LINE Messaging API** — webhook + push reply
+### Free-tier summary
+
+| Service | Free quota | Use for |
+|---|---|---|
+| **Vercel Hobby** | 100 GB-hr functions / 100 GB bandwidth / 6000 build min | host + functions |
+| **Neon Postgres** | 0.5 GB storage, 1 project | database |
+| **Upstash QStash** | 500 messages/day (~15K/month) | queue |
+| **Cloudflare R2** | 10 GB storage, **0 egress fees** | media + slip images |
+| **LINE Messaging API** | 200 push msg/month + unlimited webhook | LINE integration |
+| **Google Vision OCR** | 1,000 calls/month | OCR (switch from mock when ready) |
+
+> **⚠️ Vercel Hobby ToS:** non-commercial use only. For a real business
+> deployment you need the **Pro plan ($20/mo)**. This stack is fine for
+> proof-of-concept / personal use / open-source.
 
 ---
 
@@ -52,10 +61,11 @@ LINE
 ```
 joeai/
 ├── apps/web/
+│   ├── vercel.json                ← Vercel config (Root Directory in UI = apps/web)
 │   └── src/
 │       ├── app/
 │       │   ├── (landing + login)
-│       │   ├── dashboard/        ← 5 protected pages
+│       │   ├── dashboard/         ← 5 protected pages
 │       │   └── api/
 │       │       ├── webhook/line/route.ts        ← LINE entry point
 │       │       ├── jobs/<name>/route.ts          ← 6 QStash workers
@@ -67,90 +77,155 @@ joeai/
 │       └── lib/
 │           ├── handlers/<name>.ts                ← business logic per job
 │           ├── providers/{ocr,stt}.ts            ← swappable providers
-│           ├── db.ts, queue.ts, auth.ts, blob.ts
+│           ├── db.ts, queue.ts, auth.ts, storage.ts
 │           └── job-route.ts                       ← QStash signature wrapper
-├── packages/
-│   ├── db/         ← Drizzle schema + migrations + client
-│   ├── shared/     ← LINE adapter, QStash client, matching algo, env, logger
-│   └── extractor/  ← Thai-aware slip OCR field extraction
-└── vercel.json
+└── packages/
+    ├── db/         ← Drizzle schema + migrations + seed (bcryptjs)
+    ├── shared/     ← LINE adapter, QStash client, matching algo, env, logger
+    └── extractor/  ← Thai-aware slip OCR field extraction
 ```
 
 ---
 
-## Quick start (local dev)
+## Free-tier setup walkthrough
+
+You can spin up the entire stack without any paid signup. Each step has links.
+
+### 1. Neon Postgres
+
+1. Sign up at https://console.neon.tech (free tier auto-applied)
+2. Create a new project → pick a region close to you
+3. Dashboard → **Connection Details** → copy the **Pooled connection string**
+4. Save it — you'll paste it into Vercel env as `DATABASE_URL`
+
+### 2. Upstash QStash
+
+1. Sign up at https://console.upstash.com (free)
+2. **QStash** tab → no setup needed; the page shows your credentials
+3. Copy three values:
+   - `QSTASH_TOKEN` (starts with `eyJ...`)
+   - `QSTASH_CURRENT_SIGNING_KEY` (starts with `sig_`)
+   - `QSTASH_NEXT_SIGNING_KEY`
+
+### 3. Cloudflare R2
+
+1. Sign up at https://dash.cloudflare.com (free)
+2. **R2** in left sidebar → **Purchase R2 plan** (it's $0; just confirms zero billing)
+3. **Create bucket** → name it `joeai-media`
+4. Bucket → **Settings** → enable **Public access** → enable **R2.dev subdomain**
+   - Save the public URL (looks like `https://pub-xxxxxx.r2.dev`)
+5. R2 home → **Manage R2 API Tokens** → **Create API Token**:
+   - Permission: Object Read & Write
+   - Bucket: `joeai-media` (or All buckets)
+6. Save **Access Key ID** + **Secret Access Key** + **Account ID** (top right of dashboard)
+
+### 4. LINE Messaging API
+
+1. Sign up at https://developers.line.biz/console/ (free)
+2. **Create a new provider** → **Create a Messaging API channel**
+3. Channel → **Basic settings** → copy `Channel secret`
+4. Channel → **Messaging API** → **Issue a long-lived channel access token**
+5. **Disable** "Auto-reply messages" and "Greeting messages" (we reply via our own logic)
+6. Note: you'll set the webhook URL in Step 6 below, after Vercel deploys
+
+### 5. Vercel project
+
+1. Sign up at https://vercel.com → **Add New → Project**
+2. Import `upwellness/joeai` from GitHub
+3. **Set:**
+   - **Framework Preset:** Next.js
+   - **Root Directory:** `apps/web` ← **critical**
+   - Build / Install / Output: leave blank (Override OFF)
+4. **Environment Variables** (Settings → Environment Variables):
+
+   ```
+   DATABASE_URL              <from Neon step 1>
+   LINE_CHANNEL_SECRET       <from LINE step 3>
+   LINE_CHANNEL_ACCESS_TOKEN <from LINE step 4>
+   QSTASH_TOKEN              <from Upstash step 2>
+   QSTASH_CURRENT_SIGNING_KEY  <from Upstash step 2>
+   QSTASH_NEXT_SIGNING_KEY     <from Upstash step 2>
+   R2_ACCOUNT_ID             <from Cloudflare step 3>
+   R2_ACCESS_KEY_ID          <from Cloudflare step 3>
+   R2_SECRET_ACCESS_KEY      <from Cloudflare step 3>
+   R2_BUCKET                 joeai-media
+   R2_PUBLIC_URL_BASE        <https://pub-xxxxxx.r2.dev>
+   APP_BASE_URL              <https://your-vercel-domain.vercel.app>
+   AUTH_SECRET               <output of: openssl rand -hex 32>
+   OCR_PROVIDER              mock
+   STT_PROVIDER              mock
+   ```
+
+5. **Deploy.** Wait for green check.
+
+### 6. First-run DB setup
+
+From your laptop (one-time):
 
 ```bash
-# 0. Prereqs: Node 22+, pnpm 10+
-corepack enable
-corepack prepare pnpm@10.0.0 --activate
-
-# 1. Install
+cd joeai
+git pull
 pnpm install
 
-# 2. Spin up local Postgres (or point DATABASE_URL at Neon dev branch)
-# Easiest: use Neon's free tier and grab the connection string.
+export DATABASE_URL="<the Neon pooled URL>"
 
-# 3. Copy env + edit
-cp .env.example .env.local
-# Fill DATABASE_URL, LINE_*, QSTASH_*, BLOB_READ_WRITE_TOKEN, AUTH_SECRET
+pnpm db:migrate    # creates 11 tables
+pnpm db:seed       # creates 4 users + 1 customer (password: changeme)
+```
 
-# 4. DB migrate + seed
-pnpm db:migrate
-pnpm db:seed       # adds sample employees + customer
+### 7. Point LINE at Vercel
 
-# 5. Run dev server
-pnpm dev           # http://localhost:3000
+1. LINE Developer Console → your channel → **Messaging API**
+2. **Webhook URL:** `https://<your-vercel-domain>/api/webhook/line`
+3. **Use webhook:** ON
+4. Click **Verify** — must return Success (200)
 
-# 6. (Optional) tunnel for LINE / QStash callbacks
-cloudflared tunnel --url http://localhost:3000
-# Set APP_BASE_URL to the https URL it prints
+### 8. Log in
+
+Open `https://<your-vercel-domain>/login`:
+
+| Email | Password | Role |
+|---|---|---|
+| `admin@example.com` | `changeme` | admin (all pages) |
+| `joe@example.com` | `changeme` | sale |
+| `naree@example.com` | `changeme` | manager |
+| `accounting@example.com` | `changeme` | accounting |
+
+⚠️ **Change the default passwords** before showing this to anyone. There's no UI for it yet — use `pnpm db:studio` or Neon's SQL editor and run:
+```sql
+UPDATE employees SET password_hash = '$2a$12$...' WHERE email = 'admin@example.com';
 ```
 
 ---
 
-## Deploying to Vercel
+## Local dev
 
-1. **Connect repo** — go to https://vercel.com/new → import `upwellness/joeai`
-2. **In the import screen, set:**
-   - **Framework Preset:** Next.js (auto-detected)
-   - **Root Directory:** `apps/web` ← **important — without this you get a path-mismatch build error**
-   - **Build/Install commands:** leave as defaults; Vercel detects pnpm + monorepo
-3. **Add integrations** in the Vercel project:
-   - **Neon Postgres** (or Vercel Postgres) → auto-sets `DATABASE_URL`
-   - **Upstash QStash** → auto-sets `QSTASH_TOKEN`, `QSTASH_CURRENT_SIGNING_KEY`, `QSTASH_NEXT_SIGNING_KEY`
-   - **Vercel Blob** → auto-sets `BLOB_READ_WRITE_TOKEN`
-4. **Add the remaining env vars** in Settings → Environment Variables:
-   - `LINE_CHANNEL_SECRET`
-   - `LINE_CHANNEL_ACCESS_TOKEN`
-   - `AUTH_SECRET` (generate: `openssl rand -hex 32`)
-   - `APP_BASE_URL` = `https://<your-prod-domain>` (overrides `VERCEL_URL` fallback)
-   - `OCR_PROVIDER` / `STT_PROVIDER` (start with `mock`, switch later)
-5. **Deploy.**
-6. **Run the migration once** against prod Postgres:
-   ```bash
-   DATABASE_URL="<prod-url>" pnpm db:migrate
-   ```
-7. **Set the LINE webhook URL** in LINE Console:
-   `https://<your-prod-domain>/api/webhook/line`
-8. **Verify** in LINE Console — should respond 200.
+```bash
+cp .env.example .env.local      # fill in same values as Vercel
+pnpm install
+pnpm db:migrate
+pnpm db:seed
+pnpm dev                         # http://localhost:3000
+```
+
+For LINE / QStash callbacks to reach localhost, use a tunnel:
+
+```bash
+cloudflared tunnel --url http://localhost:3000
+# → https://random.trycloudflare.com
+# set APP_BASE_URL to that URL in .env.local
+# update LINE webhook URL to https://random.trycloudflare.com/api/webhook/line
+```
 
 ---
 
-## LINE setup
-
-1. Create a Messaging API channel at https://developers.line.biz/console/
-2. Get **Channel secret** + **Channel access token (long-lived)** → put in env
-3. Set webhook URL to `https://<your-domain>/api/webhook/line`
-4. Disable "Auto-reply messages" in LINE Console (we reply via our own logic)
-
-### ⚠️ LINE group limitation
+## LINE limitations (must read)
 
 LINE Official Accounts only receive group/room events when:
-- The bot is **mentioned** (`@SalesBot`), OR
+- The bot is **mentioned** (`@YourBot`), OR
 - A user **replies** to a bot message
 
-If you need to capture *every* group message, you must use **LINE Works** instead.
+If you need to capture *every* group message, use **LINE Works** instead.
 The architecture is channel-agnostic — only the webhook adapter would change.
 
 ---
@@ -189,15 +264,15 @@ pnpm --filter @joeai/extractor test
 
 This repo is a **bootstrap scaffold**. Before going to production:
 
+- [ ] Move to Vercel Pro ($20/mo) for commercial use + region pinning + longer timeouts
 - [ ] Decide LINE OA vs LINE Works (group capture limitation)
-- [ ] Wire a real OCR provider (Google Vision / Typhoon) — currently `mock`
+- [ ] Wire a real OCR provider (Google Vision 1K free/mo, Typhoon, etc) — currently `mock`
 - [ ] Wire a real STT provider — currently `mock`
 - [ ] Add bank-specific statement parsers (KBank, SCB, BBL, ...)
 - [ ] Implement PDPA consent flow before deploying bot to a real LINE group
-- [ ] Add audit log UI
+- [ ] Add audit log UI + password reset UI
 - [ ] Rate-limit `/api/webhook/line` at the Vercel edge / Cloudflare
 - [ ] Set up Vercel monitoring / Slack alerts on function errors
-- [ ] Load test (target: 100 webhook/sec, p95 < 1s)
 
 ---
 
