@@ -1,15 +1,27 @@
+import bcrypt from "bcryptjs";
 import { createDbClient } from "./client";
-import { employees, customers, conversations } from "./schema/index";
+import { employees, customers } from "./schema/index";
+
+// Default password for ALL seeded employees on first run.
+// CHANGE THIS IMMEDIATELY after first login (no UI yet — update via SQL).
+const DEFAULT_PASSWORD = process.env.SEED_DEFAULT_PASSWORD ?? "changeme";
 
 async function main() {
   const db = createDbClient();
-
   console.log("Seeding test data...");
 
-  // Sample employees
+  const passwordHash = await bcrypt.hash(DEFAULT_PASSWORD, 12);
+
   await db
     .insert(employees)
     .values([
+      {
+        employeeCode: "ADM001",
+        fullName: "System Admin",
+        email: "admin@example.com",
+        role: "admin",
+        passwordHash,
+      },
       {
         employeeCode: "EMP001",
         fullName: "Somchai Salee",
@@ -17,6 +29,7 @@ async function main() {
         email: "joe@example.com",
         team: "Bangkok Field Sales",
         role: "sale",
+        passwordHash,
       },
       {
         employeeCode: "EMP002",
@@ -24,17 +37,18 @@ async function main() {
         email: "naree@example.com",
         team: "Bangkok Field Sales",
         role: "manager",
+        passwordHash,
       },
       {
-        employeeCode: "ADM001",
-        fullName: "System Admin",
-        email: "admin@example.com",
-        role: "admin",
+        employeeCode: "ACC001",
+        fullName: "Accounting Lead",
+        email: "accounting@example.com",
+        role: "accounting",
+        passwordHash,
       },
     ])
     .onConflictDoNothing();
 
-  // Sample customer
   await db
     .insert(customers)
     .values([
@@ -46,7 +60,8 @@ async function main() {
     ])
     .onConflictDoNothing();
 
-  console.log("Seed complete");
+  console.log(`Seed complete. Login with admin@example.com / ${DEFAULT_PASSWORD}`);
+  console.log("⚠️  Change all default passwords before going live.");
   process.exit(0);
 }
 
